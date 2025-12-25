@@ -25,6 +25,27 @@ export function AccidentHistory() {
   useEffect(() => {
     if (user) {
       fetchAccidents();
+      
+      // Subscribe to real-time changes
+      const channel = supabase
+        .channel('accidents-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'accidents',
+            filter: `user_id=eq.${user.id}`,
+          },
+          () => {
+            fetchAccidents();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [user]);
 
