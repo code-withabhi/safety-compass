@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
+import { useShakeDetection } from '@/hooks/useShakeDetection';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmergencyConfirmation } from '@/components/EmergencyConfirmation';
@@ -10,7 +11,7 @@ import { EmergencyContactsManager } from '@/components/EmergencyContactsManager'
 import { AccidentHistory } from '@/components/AccidentHistory';
 import { MapView } from '@/components/MapView';
 import { useToast } from '@/hooks/use-toast';
-import { Shield, AlertTriangle, MapPin, LogOut, User, Navigation, Loader2 } from 'lucide-react';
+import { Shield, AlertTriangle, MapPin, LogOut, Navigation, Loader2, Smartphone } from 'lucide-react';
 
 type RiskLevel = 'low' | 'medium' | 'high';
 
@@ -28,6 +29,50 @@ export default function Dashboard() {
   
   const [showEmergency, setShowEmergency] = useState(false);
   const [isReporting, setIsReporting] = useState(false);
+  const [shakeEnabled, setShakeEnabled] = useState(false);
+
+  // Shake/Drop detection - auto triggers emergency
+  const handleShakeOrDrop = useCallback((type: 'shake' | 'drop') => {
+    if (!latitude || !longitude) {
+      toast({ 
+        title: 'Location Required', 
+        description: 'Cannot trigger emergency without location.', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+    
+    toast({
+      title: `${type === 'shake' ? 'Shake' : 'Drop'} Detected!`,
+      description: 'Emergency alert triggered automatically.',
+      variant: 'destructive',
+    });
+    
+    setShowEmergency(true);
+  }, [latitude, longitude, toast]);
+
+  const { isSupported: shakeSupported, isEnabled: shakeActive, requestPermission } = useShakeDetection(
+    handleShakeOrDrop,
+    { enabled: shakeEnabled }
+  );
+
+  // Request motion permission
+  const handleEnableShakeDetection = async () => {
+    const granted = await requestPermission();
+    if (granted) {
+      setShakeEnabled(true);
+      toast({
+        title: 'Motion Detection Enabled',
+        description: 'Emergency alert will trigger on shake or drop.',
+      });
+    } else {
+      toast({
+        title: 'Permission Denied',
+        description: 'Motion detection requires device permission.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   const handleTriggerAccident = () => {
     if (!latitude || !longitude) {
@@ -180,6 +225,32 @@ export default function Dashboard() {
                 {isReporting ? <Loader2 className="h-5 w-5 animate-spin" /> : <AlertTriangle className="h-5 w-5" />}
                 Trigger Emergency Alert
               </Button>
+              
+              {/* Shake/Drop Detection Toggle */}
+              {shakeSupported && (
+                <div className="pt-2 border-t border-border">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Smartphone className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-muted-foreground">Auto-detect shake/drop</span>
+                    </div>
+                    <Button
+                      variant={shakeEnabled && shakeActive ? "default" : "outline"}
+                      size="sm"
+                      onClick={handleEnableShakeDetection}
+                      disabled={shakeEnabled && shakeActive}
+                    >
+                      {shakeEnabled && shakeActive ? 'Enabled' : 'Enable'}
+                    </Button>
+                  </div>
+                  {shakeEnabled && shakeActive && (
+                    <p className="text-xs text-green-600 mt-2">
+                      ✓ Shake or drop your phone to auto-trigger emergency
+                    </p>
+                  )}
+                </div>
+              )}
+              
               <p className="text-xs text-center text-muted-foreground">
                 For demonstration: simulates accident detection
               </p>
