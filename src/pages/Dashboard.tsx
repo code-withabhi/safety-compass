@@ -39,7 +39,39 @@ export default function Dashboard() {
     setIsReporting(true);
     
     try {
-      const riskLevel = (speed && speed > 50) ? 'high' : (speed && speed > 20) ? 'medium' : 'low';
+      // Default risk level
+      let riskLevel: 'low' | 'medium' | 'high' = 'medium';
+      
+      // Call AI risk classification edge function
+      try {
+        const classifyResponse = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/classify-risk`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              speed: speed || 0,
+              latitude,
+              longitude,
+              timestamp: new Date().toISOString(),
+            }),
+          }
+        );
+        
+        if (classifyResponse.ok) {
+          const classification = await classifyResponse.json();
+          console.log('AI Risk Classification:', classification);
+          riskLevel = classification.risk_level || riskLevel;
+          toast({
+            title: 'AI Analysis Complete',
+            description: `Risk classified as ${riskLevel.toUpperCase()} (${Math.round((classification.confidence || 0.8) * 100)}% confidence)`,
+          });
+        }
+      } catch (aiError) {
+        console.warn('AI classification failed, using fallback:', aiError);
+        // Fallback to simple rule-based classification
+        riskLevel = (speed && speed > 50) ? 'high' : (speed && speed > 20) ? 'medium' : 'low';
+      }
       
       const { error } = await supabase.from('accidents').insert({
         user_id: user.id,
