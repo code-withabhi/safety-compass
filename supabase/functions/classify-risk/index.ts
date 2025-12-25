@@ -22,10 +22,10 @@ serve(async (req) => {
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      console.error('LOVABLE_API_KEY is not configured');
-      throw new Error('AI service not configured');
+    const GOOGLE_VERTEX_AI_API_KEY = Deno.env.get('GOOGLE_VERTEX_AI_API_KEY');
+    if (!GOOGLE_VERTEX_AI_API_KEY) {
+      console.error('GOOGLE_VERTEX_AI_API_KEY is not configured');
+      throw new Error('Google Vertex AI service not configured');
     }
 
     const accidentData: AccidentData = await req.json();
@@ -67,26 +67,54 @@ Risk Classification Criteria:
 Respond with ONLY a JSON object in this exact format:
 {"risk_level": "low|medium|high", "confidence": 0.0-1.0, "reasoning": "brief explanation"}`;
 
-    console.log('Sending request to Lovable AI Gateway...');
+    console.log('Sending request to Google Vertex AI (Gemini)...');
     
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    // Using Google Gemini API via Vertex AI
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GOOGLE_VERTEX_AI_API_KEY}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: 'You are an accident risk classification AI. Always respond with valid JSON only.' },
-          { role: 'user', content: prompt }
+        contents: [
+          {
+            parts: [
+              {
+                text: `You are an accident risk classification AI. Always respond with valid JSON only.\n\n${prompt}`
+              }
+            ]
+          }
         ],
+        generationConfig: {
+          temperature: 0.3,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 256,
+        },
+        safetySettings: [
+          {
+            category: "HARM_CATEGORY_HARASSMENT",
+            threshold: "BLOCK_NONE"
+          },
+          {
+            category: "HARM_CATEGORY_HATE_SPEECH",
+            threshold: "BLOCK_NONE"
+          },
+          {
+            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            threshold: "BLOCK_NONE"
+          },
+          {
+            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+            threshold: "BLOCK_NONE"
+          }
+        ]
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('AI Gateway error:', response.status, errorText);
+      console.error('Google Vertex AI error:', response.status, errorText);
       
       if (response.status === 429) {
         return new Response(
@@ -94,20 +122,22 @@ Respond with ONLY a JSON object in this exact format:
           { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      if (response.status === 402) {
+      if (response.status === 403) {
         return new Response(
-          JSON.stringify({ error: 'AI credits exhausted. Please add funds to continue.' }),
-          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({ error: 'API key invalid or quota exceeded. Please check your Google Cloud configuration.' }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      throw new Error(`AI Gateway error: ${response.status}`);
+      throw new Error(`Google Vertex AI error: ${response.status}`);
     }
 
     const aiResponse = await response.json();
-    console.log('AI Gateway response:', aiResponse);
+    console.log('Google Vertex AI response:', JSON.stringify(aiResponse));
 
-    const content = aiResponse.choices?.[0]?.message?.content;
+    // Extract content from Gemini response format
+    const content = aiResponse.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!content) {
+      console.error('No content in AI response:', aiResponse);
       throw new Error('No response from AI');
     }
 
@@ -139,7 +169,8 @@ Respond with ONLY a JSON object in this exact format:
         risk_level: classification.risk_level,
         confidence: classification.confidence,
         reasoning: classification.reasoning,
-        analyzed_at: new Date().toISOString()
+        analyzed_at: new Date().toISOString(),
+        powered_by: 'Google Vertex AI (Gemini)'
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
