@@ -12,6 +12,14 @@ import { MapView } from '@/components/MapView';
 import { useToast } from '@/hooks/use-toast';
 import { Shield, AlertTriangle, MapPin, LogOut, User, Navigation, Loader2 } from 'lucide-react';
 
+type RiskLevel = 'low' | 'medium' | 'high';
+
+function normalizeRiskLevel(value: unknown, fallback: RiskLevel = 'medium'): RiskLevel {
+  const v = typeof value === 'string' ? value.toLowerCase() : '';
+  if (v === 'low' || v === 'medium' || v === 'high') return v;
+  return fallback;
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user, signOut, isAdmin } = useAuth();
@@ -61,7 +69,7 @@ export default function Dashboard() {
         if (classifyResponse.ok) {
           const classification = await classifyResponse.json();
           console.log('AI Risk Classification:', classification);
-          riskLevel = classification.risk_level || riskLevel;
+          riskLevel = normalizeRiskLevel(classification.risk_level, riskLevel);
           toast({
             title: 'AI Analysis Complete',
             description: `Risk classified as ${riskLevel.toUpperCase()} (${Math.round((classification.confidence || 0.8) * 100)}% confidence)`,
