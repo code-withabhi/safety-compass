@@ -191,6 +191,7 @@ export default function Dashboard() {
         isOpen={showEmergency}
         onCancel={handleCancelEmergency}
         onConfirm={handleConfirmEmergency}
+        isLoading={isReporting}
       />
     </div>
   );
