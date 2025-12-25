@@ -50,10 +50,6 @@ export default function Dashboard() {
   }, [latitude, longitude, speed]);
 
   const handleTriggerAccident = () => {
-    if (!latitude || !longitude) {
-      toast({ title: 'Location Required', description: 'Please enable location services.', variant: 'destructive' });
-      return;
-    }
     setShowEmergency(true);
   };
 
@@ -63,11 +59,11 @@ export default function Dashboard() {
   };
 
   const handleConfirmEmergency = useCallback(async () => {
-    const lat = geoRef.current.latitude;
-    const lng = geoRef.current.longitude;
+    const lat = geoRef.current.latitude ?? 0;
+    const lng = geoRef.current.longitude ?? 0;
     const spd = geoRef.current.speed ?? 0;
 
-    if (!userId || lat == null || lng == null) return;
+    if (!userId) return;
 
     // Dedupe repeated confirms (covers mobile timer weirdness + multi-tab)
     const now = Date.now();
@@ -243,11 +239,17 @@ export default function Dashboard() {
                 size="xl"
                 className="w-full"
                 onClick={handleTriggerAccident}
-                disabled={!latitude || !longitude || isReporting}
+                disabled={isReporting}
               >
                 {isReporting ? <Loader2 className="h-5 w-5 animate-spin" /> : <AlertTriangle className="h-5 w-5" />}
                 Trigger Emergency Alert
               </Button>
+              
+              {geoError && (
+                <p className="text-xs text-center text-amber-500">
+                  ⚠️ Location unavailable: {geoError}. Alert will use default coordinates.
+                </p>
+              )}
               
               <p className="text-xs text-center text-muted-foreground">
                 For demonstration: simulates accident detection
