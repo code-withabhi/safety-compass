@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, X, Phone, Clock, Loader2 } from 'lucide-react';
+import { useAlertSound } from '@/hooks/useAlertSound';
 
 interface EmergencyConfirmationProps {
   isOpen: boolean;
@@ -21,6 +22,8 @@ export function EmergencyConfirmation({
   const hasConfirmedRef = useRef(false);
   const deadlineRef = useRef<number | null>(null);
   const onConfirmRef = useRef(onConfirm);
+  const { playAlertSound } = useAlertSound();
+  const soundPlayedRef = useRef(false);
 
   // Keep latest onConfirm without restarting the timer effect
   useEffect(() => {
@@ -34,17 +37,24 @@ export function EmergencyConfirmation({
     onConfirmRef.current();
   };
 
-  // Reset state when modal opens
+  // Reset state when modal opens and play alert sound
   useEffect(() => {
     if (!isOpen) {
       deadlineRef.current = null;
+      soundPlayedRef.current = false;
       return;
     }
 
     hasConfirmedRef.current = false;
     deadlineRef.current = Date.now() + countdownDuration * 1000;
     setCountdown(countdownDuration);
-  }, [isOpen, countdownDuration]);
+
+    // Play alert sound when modal opens
+    if (!soundPlayedRef.current) {
+      soundPlayedRef.current = true;
+      playAlertSound();
+    }
+  }, [isOpen, countdownDuration, playAlertSound]);
 
   // Countdown timer (wall-clock based to avoid drift / mobile throttling)
   useEffect(() => {
