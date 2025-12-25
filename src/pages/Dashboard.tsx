@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -29,6 +29,7 @@ export default function Dashboard() {
   
   const [showEmergency, setShowEmergency] = useState(false);
   const [isReporting, setIsReporting] = useState(false);
+  const reportInFlightRef = useRef(false);
 
   // Shake/Drop detection - auto triggers emergency
   const handleShakeOrDrop = useCallback((type: 'shake' | 'drop') => {
@@ -102,6 +103,13 @@ export default function Dashboard() {
 
   const handleConfirmEmergency = useCallback(async () => {
     if (!user || !latitude || !longitude) return;
+
+    if (reportInFlightRef.current) {
+      console.log('[Dashboard] Emergency confirm ignored (already reporting)');
+      return;
+    }
+
+    reportInFlightRef.current = true;
     setIsReporting(true);
     
     try {
@@ -157,6 +165,7 @@ export default function Dashboard() {
       toast({ title: 'Error', description: 'Failed to report emergency.', variant: 'destructive' });
     } finally {
       setIsReporting(false);
+      reportInFlightRef.current = false;
     }
   }, [user, latitude, longitude, speed, toast]);
 

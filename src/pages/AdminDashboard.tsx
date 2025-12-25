@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -37,6 +37,7 @@ export default function AdminDashboard() {
   const [profileMap, setProfileMap] = useState<ProfileMap>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const lastInsertToastRef = useRef<{ id: string; at: number } | null>(null);
 
   // Fetch all accidents
   const fetchAccidents = async () => {
@@ -117,7 +118,16 @@ export default function AdminDashboard() {
         (payload) => {
           console.log('Accident change:', payload);
           fetchAccidents();
+
           if (payload.eventType === 'INSERT') {
+            const id = (payload as any)?.new?.id as string | undefined;
+            const now = Date.now();
+            const prev = lastInsertToastRef.current;
+
+            // Deduplicate possible repeated INSERT events/toasts
+            if (id && prev?.id === id && now - prev.at < 5000) return;
+            lastInsertToastRef.current = { id: id || 'unknown', at: now };
+
             toast({
               title: 'New Accident Detected',
               description: 'A new emergency has been reported.',
@@ -129,6 +139,7 @@ export default function AdminDashboard() {
       .subscribe();
 
     return () => {
+      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, []);

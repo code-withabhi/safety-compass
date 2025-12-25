@@ -19,31 +19,43 @@ export function EmergencyConfirmation({
 }: EmergencyConfirmationProps) {
   const [countdown, setCountdown] = useState(countdownDuration);
   const hasConfirmedRef = useRef(false);
+  const deadlineRef = useRef<number | null>(null);
 
-  // Reset state when modal opens/closes
+  // Reset state when modal opens
   useEffect(() => {
-    if (isOpen) {
-      setCountdown(countdownDuration);
-      hasConfirmedRef.current = false;
-    }
-  }, [isOpen, countdownDuration]);
-
-  // Countdown timer
-  useEffect(() => {
-    if (!isOpen || isLoading || hasConfirmedRef.current) return;
-
-    if (countdown <= 0) {
-      hasConfirmedRef.current = true;
-      onConfirm();
+    if (!isOpen) {
+      deadlineRef.current = null;
       return;
     }
 
-    const timer = setTimeout(() => {
-      setCountdown((prev) => prev - 1);
-    }, 1000);
+    hasConfirmedRef.current = false;
+    deadlineRef.current = Date.now() + countdownDuration * 1000;
+    setCountdown(countdownDuration);
+  }, [isOpen, countdownDuration]);
 
-    return () => clearTimeout(timer);
-  }, [isOpen, countdown, onConfirm, isLoading]);
+  // Countdown timer (wall-clock based to avoid drift)
+  useEffect(() => {
+    if (!isOpen || isLoading || hasConfirmedRef.current) return;
+    if (!deadlineRef.current) return;
+
+    const tick = () => {
+      if (!deadlineRef.current) return;
+
+      const remainingMs = deadlineRef.current - Date.now();
+      const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+      setCountdown(remainingSec);
+
+      if (remainingSec <= 0 && !hasConfirmedRef.current) {
+        hasConfirmedRef.current = true;
+        onConfirm();
+      }
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 250);
+
+    return () => window.clearInterval(interval);
+  }, [isOpen, isLoading, onConfirm]);
 
   if (!isOpen) return null;
 
@@ -98,7 +110,7 @@ export function EmergencyConfirmation({
               size="xl"
               className="w-full"
               onClick={onConfirm}
-              disabled={isLoading}
+              disabled={isLoading || countdown <= 0}
             >
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Phone className="h-5 w-5" />}
               {isLoading ? 'Sending Alert...' : 'Send Emergency Alert Now'}

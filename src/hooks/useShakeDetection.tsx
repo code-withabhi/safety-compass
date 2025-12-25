@@ -22,8 +22,8 @@ export function useShakeDetection(
   options: ShakeDetectionOptions = {}
 ): ShakeDetectionResult {
   const {
-    shakeThreshold = 20, // Lower threshold for easier detection
-    dropThreshold = 2, // Low acceleration indicates freefall/drop
+    shakeThreshold = 7, // Delta from normal gravity (m/s²) to consider it a shake
+    dropThreshold = 2.5, // Near-freefall total acceleration (m/s²)
     debounceMs = 2000, // 2 second debounce
     autoStart = true,
   } = options;
@@ -135,42 +135,46 @@ export function useShakeDetection(
     }
 
     const handleMotion = (event: DeviceMotionEvent) => {
-      const acceleration = event.accelerationIncludingGravity || event.acceleration;
-      if (!acceleration) {
-        return;
-      }
+      // Prefer includingGravity (most widely supported + enables drop detection)
+      const including = event.accelerationIncludingGravity;
+      const linear = event.acceleration;
 
-      const { x, y, z } = acceleration;
-      if (x === null || y === null || z === null) {
-        return;
-      }
+      const canUseIncluding =
+        !!including && including.x != null && including.y != null && including.z != null;
 
-      // Calculate total acceleration magnitude
-      // Normal gravity is ~9.8, so we subtract it for shake detection
+      const source = canUseIncluding ? including : linear;
+      if (!source || source.x == null || source.y == null || source.z == null) return;
+
+      const x = source.x;
+      const y = source.y;
+      const z = source.z;
+
       const totalAcceleration = Math.sqrt(x * x + y * y + z * z);
-      
       const now = Date.now();
-      
+
       // Debounce check
       if (now - lastTriggerRef.current < debounceMs) return;
 
-      // Detect freefall (drop) - very low acceleration (phone in free fall = ~0)
-      if (totalAcceleration < dropThreshold) {
-        console.log('[ShakeDetection] Drop detected! Acceleration:', totalAcceleration);
+      // Drop detection is only reliable when including gravity is available
+      if (canUseIncluding && totalAcceleration < dropThreshold) {
+        console.log('[ShakeDetection] Drop detected! total:', totalAcceleration);
         lastTriggerRef.current = now;
         setLastEvent('drop');
         onDetectRef.current('drop');
         return;
       }
 
-      // Detect shake - acceleration significantly higher than gravity (~9.8)
-      // When shaking, total acceleration spikes above normal
-      if (totalAcceleration > shakeThreshold) {
-        console.log('[ShakeDetection] Shake detected! Acceleration:', totalAcceleration);
+      // Shake detection
+      // - With gravity: use delta from ~9.81 m/s²
+      // - Without gravity: use raw linear acceleration magnitude
+      const gravity = 9.81;
+      const shakeValue = canUseIncluding ? Math.abs(totalAcceleration - gravity) : totalAcceleration;
+
+      if (shakeValue > shakeThreshold) {
+        console.log('[ShakeDetection] Shake detected! value:', shakeValue, 'total:', totalAcceleration);
         lastTriggerRef.current = now;
         setLastEvent('shake');
         onDetectRef.current('shake');
-        return;
       }
     };
 
