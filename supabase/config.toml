@@ -1,1 +1,4 @@
 project_id = "vpcguigskvmlrxgzoxpp"
+
+[functions.classify-risk]
+verify_jwt = false

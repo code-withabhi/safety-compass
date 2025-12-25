@@ -10,9 +10,18 @@ interface Marker {
   title?: string;
 }
 
-interface MapViewProps {
+interface AccidentMarker {
+  id: string;
+  lat: number;
+  lng: number;
+  riskLevel: 'low' | 'medium' | 'high';
+  status?: string;
+}
+
+export interface MapViewProps {
   center?: { lat: number; lng: number };
   markers?: Marker[];
+  accidents?: AccidentMarker[];
   zoom?: number;
   showUserLocation?: boolean;
   className?: string;
@@ -21,6 +30,7 @@ interface MapViewProps {
 export function MapView({
   center,
   markers = [],
+  accidents = [],
   zoom = 14,
   showUserLocation = false,
   className = '',
@@ -108,7 +118,7 @@ export function MapView({
             </div>
           )}
 
-          {/* Accident markers */}
+          {/* Legacy markers */}
           {markers.map((marker, index) => (
             <div
               key={marker.id}
@@ -129,6 +139,29 @@ export function MapView({
                   {marker.title}
                 </div>
               )}
+            </div>
+          ))}
+
+          {/* Accident markers for admin view */}
+          {accidents.map((accident, index) => (
+            <div
+              key={accident.id}
+              className="absolute cursor-pointer transition-transform hover:scale-110"
+              style={{
+                left: `${15 + (index * 12) % 70}%`,
+                top: `${15 + (index * 18) % 60}%`,
+              }}
+              title={`Risk: ${accident.riskLevel.toUpperCase()}`}
+            >
+              <div className={`relative flex h-10 w-10 items-center justify-center rounded-full ${getRiskBgColor(accident.riskLevel)}`}>
+                {accident.riskLevel === 'high' && (
+                  <div className="absolute -inset-1 animate-pulse rounded-full bg-destructive/30" />
+                )}
+                <AlertTriangle className={`h-5 w-5 ${getRiskColor(accident.riskLevel)}`} />
+              </div>
+              <div className="absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap rounded bg-card px-2 py-1 text-xs shadow-card">
+                {accident.status}
+              </div>
             </div>
           ))}
 
