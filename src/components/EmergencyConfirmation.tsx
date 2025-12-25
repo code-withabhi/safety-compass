@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, X, Phone, Clock } from 'lucide-react';
+import { AlertTriangle, X, Phone, Clock, Loader2 } from 'lucide-react';
 
 interface EmergencyConfirmationProps {
   isOpen: boolean;
   onCancel: () => void;
   onConfirm: () => void;
   countdownDuration?: number;
+  isLoading?: boolean;
 }
 
 export function EmergencyConfirmation({
@@ -14,6 +15,7 @@ export function EmergencyConfirmation({
   onCancel,
   onConfirm,
   countdownDuration = 15,
+  isLoading = false,
 }: EmergencyConfirmationProps) {
   const [countdown, setCountdown] = useState(countdownDuration);
 
@@ -78,6 +80,7 @@ export function EmergencyConfirmation({
               size="xl"
               className="w-full"
               onClick={onCancel}
+              disabled={isLoading}
             >
               <X className="h-5 w-5" />
               I'm Okay - Cancel Alert
@@ -87,9 +90,10 @@ export function EmergencyConfirmation({
               size="xl"
               className="w-full"
               onClick={onConfirm}
+              disabled={isLoading}
             >
-              <Phone className="h-5 w-5" />
-              Send Emergency Alert Now
+              {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Phone className="h-5 w-5" />}
+              {isLoading ? 'Sending Alert...' : 'Send Emergency Alert Now'}
             </Button>
           </div>
 
