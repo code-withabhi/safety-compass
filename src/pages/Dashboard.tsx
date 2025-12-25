@@ -105,14 +105,38 @@ export default function Dashboard() {
           }),
         });
 
+        const raw = await classifyResponse.text();
+        let classification: any = null;
+        try {
+          classification = raw ? JSON.parse(raw) : null;
+        } catch {
+          classification = { raw };
+        }
+
         if (classifyResponse.ok) {
-          const classification = await classifyResponse.json();
           console.log('AI Risk Classification:', classification);
-          riskLevel = normalizeRiskLevel(classification.risk_level, riskLevel);
-          toast({
-            title: 'AI Analysis Complete',
-            description: `Risk classified as ${riskLevel.toUpperCase()} (${Math.round((classification.confidence || 0.8) * 100)}% confidence)`,
-          });
+          riskLevel = normalizeRiskLevel(classification?.risk_level, riskLevel);
+
+          if (classification?.powered_by === 'fallback') {
+            toast({
+              title: 'AI rate-limited',
+              description: 'Google AI is busy; using fallback risk estimate for now.',
+            });
+          } else {
+            toast({
+              title: 'AI Analysis Complete',
+              description: `Risk classified as ${riskLevel.toUpperCase()} (${Math.round((classification?.confidence || 0.8) * 100)}% confidence)`,
+            });
+          }
+        } else {
+          console.warn('AI classification failed:', classifyResponse.status, classification);
+          if (classifyResponse.status === 429) {
+            riskLevel = spd > 50 ? 'high' : spd > 20 ? 'medium' : 'low';
+            toast({
+              title: 'AI busy',
+              description: 'Rate limited by Google AI; using fallback risk estimate.',
+            });
+          }
         }
       } catch (aiError) {
         console.warn('AI classification failed, using fallback:', aiError);
