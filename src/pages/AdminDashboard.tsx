@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
+import { useAlertSound } from '@/hooks/useAlertSound';
 import { 
   Shield, 
   MapPin, 
@@ -38,6 +39,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const lastInsertToastRef = useRef<{ id: string; at: number } | null>(null);
+  const { playAlertSound } = useAlertSound();
 
   // Fetch all accidents
   const fetchAccidents = async () => {
@@ -127,6 +129,9 @@ export default function AdminDashboard() {
             // Deduplicate possible repeated INSERT events/toasts
             if (id && prev?.id === id && now - prev.at < 5000) return;
             lastInsertToastRef.current = { id: id || 'unknown', at: now };
+
+            // Play alert sound for new accident
+            playAlertSound();
 
             toast({
               title: 'New Accident Detected',
