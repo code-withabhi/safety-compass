@@ -134,9 +134,9 @@ export default function Dashboard() {
 
       if (error) throw error;
 
-      // Send SMS notifications to emergency contacts
+      // Send email notifications to emergency contacts
       try {
-        const smsResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-sms`, {
+        const emailResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -147,17 +147,17 @@ export default function Dashboard() {
           }),
         });
 
-        if (smsResponse.ok) {
-          const smsResult = await smsResponse.json();
-          console.log('SMS notification result:', smsResult);
-          toast({ title: 'Emergency Reported', description: `SMS sent to emergency contacts. ${smsResult.message}` });
+        if (emailResponse.ok) {
+          const emailResult = await emailResponse.json();
+          console.log('Email notification result:', emailResult);
+          toast({ title: 'Emergency Reported', description: `Email sent to emergency contacts. ${emailResult.message}` });
         } else {
-          console.warn('SMS notification failed:', await smsResponse.text());
-          toast({ title: 'Emergency Reported', description: 'Alert saved but SMS notification failed.' });
+          console.warn('Email notification failed:', await emailResponse.text());
+          toast({ title: 'Emergency Reported', description: 'Alert saved but email notification failed.' });
         }
-      } catch (smsError) {
-        console.warn('SMS notification error:', smsError);
-        toast({ title: 'Emergency Reported', description: 'Alert saved but SMS notification failed.' });
+      } catch (emailError) {
+        console.warn('Email notification error:', emailError);
+        toast({ title: 'Emergency Reported', description: 'Alert saved but email notification failed.' });
       }
 
       setShowEmergency(false);
