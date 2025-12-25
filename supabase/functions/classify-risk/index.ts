@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { encodeBase64Url } from "https://deno.land/std@0.224.0/encoding/base64url.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,9 +26,6 @@ type Classification = {
 // Simple in-memory cache (helps avoid repeated calls during demos / retries)
 const CACHE_TTL_MS = 60_000;
 const cache = new Map<string, { value: Classification; expiresAt: number }>();
-
-// Token cache for OAuth
-let cachedAccessToken: { token: string; expiresAt: number } | null = null;
 
 function calcLocationChangeMeters(data: AccidentData): number {
   if (!data.previousLatitude || !data.previousLongitude) return 0;
@@ -69,107 +65,15 @@ function ruleBasedClassification(args: {
   };
 }
 
-// Create JWT for Google OAuth
-async function createJWT(serviceAccount: {
-  client_email: string;
-  private_key: string;
-}): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const header = { alg: "RS256", typ: "JWT" };
-  const payload = {
-    iss: serviceAccount.client_email,
-    sub: serviceAccount.client_email,
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-    scope: "https://www.googleapis.com/auth/cloud-platform",
-  };
-
-  const encoder = new TextEncoder();
-  const headerB64 = encodeBase64Url(encoder.encode(JSON.stringify(header)));
-  const payloadB64 = encodeBase64Url(encoder.encode(JSON.stringify(payload)));
-  const signatureInput = `${headerB64}.${payloadB64}`;
-
-  // Import the private key
-  const pemContents = serviceAccount.private_key
-    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\s/g, "");
-
-  const binaryKey = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
-
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    binaryKey,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    cryptoKey,
-    encoder.encode(signatureInput)
-  );
-
-  const signatureB64 = encodeBase64Url(new Uint8Array(signature));
-  return `${signatureInput}.${signatureB64}`;
-}
-
-// Get access token using service account
-async function getAccessToken(serviceAccount: {
-  client_email: string;
-  private_key: string;
-}): Promise<string> {
-  // Check if we have a valid cached token
-  if (cachedAccessToken && cachedAccessToken.expiresAt > Date.now() + 60000) {
-    return cachedAccessToken.token;
-  }
-
-  const jwt = await createJWT(serviceAccount);
-
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("OAuth token error:", response.status, errorText);
-    throw new Error(`Failed to get access token: ${response.status}`);
-  }
-
-  const data = await response.json();
-  cachedAccessToken = {
-    token: data.access_token,
-    expiresAt: Date.now() + (data.expires_in - 60) * 1000,
-  };
-
-  return data.access_token;
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const GCP_PROJECT_ID = Deno.env.get("GCP_PROJECT_ID");
-    const GCP_SERVICE_ACCOUNT_JSON = Deno.env.get("GCP_SERVICE_ACCOUNT_JSON");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
-    if (!GCP_PROJECT_ID || !GCP_SERVICE_ACCOUNT_JSON) {
-      console.error("GCP credentials not configured");
-      throw new Error("Google Vertex AI service not configured");
-    }
-
-    let serviceAccount: { client_email: string; private_key: string };
-    try {
-      serviceAccount = JSON.parse(GCP_SERVICE_ACCOUNT_JSON);
-    } catch (e) {
-      console.error("Failed to parse service account JSON:", e);
-      throw new Error("Invalid service account configuration");
+    if (!LOVABLE_API_KEY) {
+      console.error("LOVABLE_API_KEY not configured");
+      throw new Error("AI service not configured");
     }
 
     const accidentData: AccidentData = await req.json();
@@ -192,6 +96,7 @@ serve(async (req) => {
 
     const cached = cache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
+      console.log("Returning cached classification");
       return new Response(
         JSON.stringify({
           ...cached.value,
@@ -220,48 +125,38 @@ Risk Classification Criteria:
 Respond with ONLY a JSON object in this exact format:
 {"risk_level": "low|medium|high", "confidence": 0.0-1.0, "reasoning": "brief explanation"}`;
 
-    console.log("Getting OAuth access token...");
-    const accessToken = await getAccessToken(serviceAccount);
+    console.log("Calling Lovable AI (gemini-2.5-flash)...");
 
-    console.log("Calling Google Vertex AI (gemini-2.0-flash)...");
-    
-    // Vertex AI endpoint format
-    const vertexUrl = `https://us-central1-aiplatform.googleapis.com/v1/projects/${GCP_PROJECT_ID}/locations/us-central1/publishers/google/models/gemini-2.0-flash:generateContent`;
-
-    const response = await fetch(vertexUrl, {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${accessToken}`,
+        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        contents: [
+        model: "google/gemini-2.5-flash",
+        messages: [
+          {
+            role: "system",
+            content: "You are an accident risk classification AI. Always respond with valid JSON only.",
+          },
           {
             role: "user",
-            parts: [
-              {
-                text:
-                  "You are an accident risk classification AI. Always respond with valid JSON only.\n\n" +
-                  prompt,
-              },
-            ],
+            content: prompt,
           },
         ],
-        generationConfig: {
-          temperature: 0.2,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 256,
-        },
+        temperature: 0.2,
+        max_tokens: 256,
       }),
     });
 
-    // If Google rate-limits us, keep the app working by falling back to rules.
+    // Handle rate limits and errors
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Vertex AI error:", response.status, errorText);
+      console.error("Lovable AI error:", response.status, errorText);
 
-      if (response.status === 429 || response.status === 503) {
+      if (response.status === 429) {
+        console.log("Rate limited - using rule-based fallback");
         const fb = ruleBasedClassification({
           speed: accidentData.speed || 0,
           locationChange,
@@ -281,26 +176,51 @@ Respond with ONLY a JSON object in this exact format:
         );
       }
 
-      if (response.status === 403) {
+      if (response.status === 402) {
+        console.log("Payment required - using rule-based fallback");
+        const fb = ruleBasedClassification({
+          speed: accidentData.speed || 0,
+          locationChange,
+          isNightTime,
+          isRushHour,
+        });
+        cache.set(cacheKey, { value: fb, expiresAt: Date.now() + CACHE_TTL_MS });
+
         return new Response(
           JSON.stringify({
-            error:
-              "Vertex AI access denied. Ensure the Vertex AI API is enabled and the service account has proper permissions.",
+            ...fb,
+            analyzed_at: new Date().toISOString(),
+            powered_by: "fallback",
+            ai_error: "payment_required",
           }),
-          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
 
+      // For other errors, use fallback
+      const fb = ruleBasedClassification({
+        speed: accidentData.speed || 0,
+        locationChange,
+        isNightTime,
+        isRushHour,
+      });
+      cache.set(cacheKey, { value: fb, expiresAt: Date.now() + CACHE_TTL_MS });
+
       return new Response(
-        JSON.stringify({ error: `Vertex AI error: ${response.status}` }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        JSON.stringify({
+          ...fb,
+          analyzed_at: new Date().toISOString(),
+          powered_by: "fallback",
+          ai_error: "api_error",
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     const aiResponse = await response.json();
-    console.log("Vertex AI response received");
+    console.log("Lovable AI response received");
 
-    const content = aiResponse?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined;
+    const content = aiResponse?.choices?.[0]?.message?.content as string | undefined;
     if (!content) {
       throw new Error("No response text from AI");
     }
@@ -331,7 +251,7 @@ Respond with ONLY a JSON object in this exact format:
       JSON.stringify({
         ...classification,
         analyzed_at: new Date().toISOString(),
-        powered_by: "vertex_ai",
+        powered_by: "lovable_ai",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
