@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, X, Phone, Clock, Loader2 } from 'lucide-react';
 
@@ -18,24 +18,32 @@ export function EmergencyConfirmation({
   isLoading = false,
 }: EmergencyConfirmationProps) {
   const [countdown, setCountdown] = useState(countdownDuration);
+  const hasConfirmedRef = useRef(false);
 
+  // Reset state when modal opens/closes
   useEffect(() => {
-    if (!isOpen) {
+    if (isOpen) {
       setCountdown(countdownDuration);
-      return;
+      hasConfirmedRef.current = false;
     }
+  }, [isOpen, countdownDuration]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (!isOpen || isLoading || hasConfirmedRef.current) return;
 
     if (countdown <= 0) {
+      hasConfirmedRef.current = true;
       onConfirm();
       return;
     }
 
-    const timer = setInterval(() => {
+    const timer = setTimeout(() => {
       setCountdown((prev) => prev - 1);
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [isOpen, countdown, onConfirm, countdownDuration]);
+    return () => clearTimeout(timer);
+  }, [isOpen, countdown, onConfirm, isLoading]);
 
   if (!isOpen) return null;
 
