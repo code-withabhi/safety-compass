@@ -117,10 +117,11 @@ export default function Dashboard() {
           console.log('AI Risk Classification:', classification);
           riskLevel = normalizeRiskLevel(classification?.risk_level, riskLevel);
 
-          if (classification?.powered_by === 'fallback') {
+          if (classification?.ai_error === 'rate_limited' || classification?.powered_by === 'fallback') {
             toast({
-              title: 'AI rate-limited',
-              description: 'Google AI is busy; using fallback risk estimate for now.',
+              title: 'AI Rate Limited',
+              description: 'Vertex AI is temporarily busy. Using rule-based risk assessment.',
+              variant: 'default',
             });
           } else {
             toast({
@@ -130,17 +131,38 @@ export default function Dashboard() {
           }
         } else {
           console.warn('AI classification failed:', classifyResponse.status, classification);
+          
+          // Use fallback classification
+          riskLevel = spd > 50 ? 'high' : spd > 20 ? 'medium' : 'low';
+          
           if (classifyResponse.status === 429) {
-            riskLevel = spd > 50 ? 'high' : spd > 20 ? 'medium' : 'low';
             toast({
-              title: 'AI busy',
-              description: 'Rate limited by Google AI; using fallback risk estimate.',
+              title: 'AI Rate Limited',
+              description: 'Vertex AI rate limit reached. Using fallback risk estimate.',
+              variant: 'default',
+            });
+          } else if (classifyResponse.status === 403) {
+            toast({
+              title: 'AI Access Denied',
+              description: classification?.error || 'Vertex AI access denied. Check GCP permissions.',
+              variant: 'destructive',
+            });
+          } else {
+            toast({
+              title: 'AI Unavailable',
+              description: 'Could not reach AI service. Using fallback risk estimate.',
+              variant: 'default',
             });
           }
         }
       } catch (aiError) {
         console.warn('AI classification failed, using fallback:', aiError);
         riskLevel = spd > 50 ? 'high' : spd > 20 ? 'medium' : 'low';
+        toast({
+          title: 'AI Connection Error',
+          description: 'Failed to connect to AI service. Using fallback risk estimate.',
+          variant: 'default',
+        });
       }
 
       const { error } = await supabase.from('accidents').insert({
