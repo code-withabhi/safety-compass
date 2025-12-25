@@ -20,6 +20,19 @@ export function EmergencyConfirmation({
   const [countdown, setCountdown] = useState(countdownDuration);
   const hasConfirmedRef = useRef(false);
   const deadlineRef = useRef<number | null>(null);
+  const onConfirmRef = useRef(onConfirm);
+
+  // Keep latest onConfirm without restarting the timer effect
+  useEffect(() => {
+    onConfirmRef.current = onConfirm;
+  }, [onConfirm]);
+
+  const handleConfirmOnce = () => {
+    if (isLoading) return;
+    if (hasConfirmedRef.current) return;
+    hasConfirmedRef.current = true;
+    onConfirmRef.current();
+  };
 
   // Reset state when modal opens
   useEffect(() => {
@@ -33,10 +46,12 @@ export function EmergencyConfirmation({
     setCountdown(countdownDuration);
   }, [isOpen, countdownDuration]);
 
-  // Countdown timer (wall-clock based to avoid drift)
+  // Countdown timer (wall-clock based to avoid drift / mobile throttling)
   useEffect(() => {
-    if (!isOpen || isLoading || hasConfirmedRef.current) return;
+    if (!isOpen || hasConfirmedRef.current) return;
     if (!deadlineRef.current) return;
+
+    let timeoutId: number | null = null;
 
     const tick = () => {
       if (!deadlineRef.current) return;
@@ -45,17 +60,20 @@ export function EmergencyConfirmation({
       const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
       setCountdown(remainingSec);
 
-      if (remainingSec <= 0 && !hasConfirmedRef.current) {
-        hasConfirmedRef.current = true;
-        onConfirm();
+      if (remainingSec <= 0) {
+        handleConfirmOnce();
+        return;
       }
+
+      timeoutId = window.setTimeout(tick, 200);
     };
 
     tick();
-    const interval = window.setInterval(tick, 250);
 
-    return () => window.clearInterval(interval);
-  }, [isOpen, isLoading, onConfirm]);
+    return () => {
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [isOpen, isLoading]);
 
   if (!isOpen) return null;
 
@@ -109,8 +127,8 @@ export function EmergencyConfirmation({
               variant="emergency"
               size="xl"
               className="w-full"
-              onClick={onConfirm}
-              disabled={isLoading || countdown <= 0}
+              onClick={handleConfirmOnce}
+              disabled={isLoading}
             >
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Phone className="h-5 w-5" />}
               {isLoading ? 'Sending Alert...' : 'Send Emergency Alert Now'}

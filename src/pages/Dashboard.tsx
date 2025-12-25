@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -23,12 +23,31 @@ function normalizeRiskLevel(value: unknown, fallback: RiskLevel = 'medium'): Ris
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user, signOut, isAdmin } = useAuth();
+  const userId = user?.id ?? null;
   const { toast } = useToast();
   const { latitude, longitude, speed, loading: geoLoading, error: geoError, refresh } = useGeolocation({ watch: true });
-  
+
   const [showEmergency, setShowEmergency] = useState(false);
   const [isReporting, setIsReporting] = useState(false);
+
+  // Prevent double submits within the same tab + across tabs (mobile double timers / duplicate sessions)
   const reportInFlightRef = useRef(false);
+  const lastEmergencyAtRef = useRef<number>(0);
+
+  // Keep latest geo values without forcing callback identity to change
+  const geoRef = useRef<{ latitude: number | null; longitude: number | null; speed: number | null }>({
+    latitude: null,
+    longitude: null,
+    speed: null,
+  });
+
+  useEffect(() => {
+    geoRef.current = {
+      latitude: latitude ?? null,
+      longitude: longitude ?? null,
+      speed: speed ?? null,
+    };
+  }, [latitude, longitude, speed]);
 
   const handleTriggerAccident = () => {
     if (!latitude || !longitude) {
@@ -44,36 +63,52 @@ export default function Dashboard() {
   };
 
   const handleConfirmEmergency = useCallback(async () => {
-    if (!user || !latitude || !longitude) return;
+    const lat = geoRef.current.latitude;
+    const lng = geoRef.current.longitude;
+    const spd = geoRef.current.speed ?? 0;
+
+    if (!userId || lat == null || lng == null) return;
+
+    // Dedupe repeated confirms (covers mobile timer weirdness + multi-tab)
+    const now = Date.now();
+    const lockKey = `safeguard_emergency_last_sent_${userId}`;
+    const storedLast = Number(localStorage.getItem(lockKey) || 0);
+    const lastSeen = Math.max(lastEmergencyAtRef.current, storedLast);
+
+    if (now - lastSeen < 8000) {
+      console.log('[Dashboard] Emergency confirm ignored (recently sent)');
+      return;
+    }
 
     if (reportInFlightRef.current) {
       console.log('[Dashboard] Emergency confirm ignored (already reporting)');
       return;
     }
 
+    // Acquire lock *before* any async work
+    localStorage.setItem(lockKey, String(now));
+    lastEmergencyAtRef.current = now;
+
     reportInFlightRef.current = true;
     setIsReporting(true);
-    
+
     try {
       // Default risk level
-      let riskLevel: 'low' | 'medium' | 'high' = 'medium';
-      
-      // Call AI risk classification edge function
+      let riskLevel: RiskLevel = 'medium';
+
+      // Call AI risk classification backend function
       try {
-        const classifyResponse = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/classify-risk`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              speed: speed || 0,
-              latitude,
-              longitude,
-              timestamp: new Date().toISOString(),
-            }),
-          }
-        );
-        
+        const classifyResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/classify-risk`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            speed: spd,
+            latitude: lat,
+            longitude: lng,
+            timestamp: new Date().toISOString(),
+          }),
+        });
+
         if (classifyResponse.ok) {
           const classification = await classifyResponse.json();
           console.log('AI Risk Classification:', classification);
@@ -85,21 +120,20 @@ export default function Dashboard() {
         }
       } catch (aiError) {
         console.warn('AI classification failed, using fallback:', aiError);
-        // Fallback to simple rule-based classification
-        riskLevel = (speed && speed > 50) ? 'high' : (speed && speed > 20) ? 'medium' : 'low';
+        riskLevel = spd > 50 ? 'high' : spd > 20 ? 'medium' : 'low';
       }
-      
+
       const { error } = await supabase.from('accidents').insert({
-        user_id: user.id,
-        latitude,
-        longitude,
-        speed: speed || 0,
+        user_id: userId,
+        latitude: lat,
+        longitude: lng,
+        speed: spd,
         risk_level: riskLevel,
         status: 'pending',
       });
 
       if (error) throw error;
-      
+
       toast({ title: 'Emergency Reported', description: 'Emergency contacts have been notified.' });
       setShowEmergency(false);
     } catch (error) {
@@ -109,7 +143,7 @@ export default function Dashboard() {
       setIsReporting(false);
       reportInFlightRef.current = false;
     }
-  }, [user, latitude, longitude, speed, toast]);
+  }, [userId, toast]);
 
   const handleSignOut = async () => {
     await signOut();
