@@ -134,7 +134,32 @@ export default function Dashboard() {
 
       if (error) throw error;
 
-      toast({ title: 'Emergency Reported', description: 'Emergency contacts have been notified.' });
+      // Send SMS notifications to emergency contacts
+      try {
+        const smsResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-sms`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: userId,
+            message: 'Emergency Alert',
+            latitude: lat,
+            longitude: lng,
+          }),
+        });
+
+        if (smsResponse.ok) {
+          const smsResult = await smsResponse.json();
+          console.log('SMS notification result:', smsResult);
+          toast({ title: 'Emergency Reported', description: `SMS sent to emergency contacts. ${smsResult.message}` });
+        } else {
+          console.warn('SMS notification failed:', await smsResponse.text());
+          toast({ title: 'Emergency Reported', description: 'Alert saved but SMS notification failed.' });
+        }
+      } catch (smsError) {
+        console.warn('SMS notification error:', smsError);
+        toast({ title: 'Emergency Reported', description: 'Alert saved but SMS notification failed.' });
+      }
+
       setShowEmergency(false);
     } catch (error) {
       console.error('Error reporting accident:', error);
