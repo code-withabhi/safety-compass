@@ -29,7 +29,6 @@ export default function Dashboard() {
   
   const [showEmergency, setShowEmergency] = useState(false);
   const [isReporting, setIsReporting] = useState(false);
-  const [shakeEnabled, setShakeEnabled] = useState(false);
 
   // Shake/Drop detection - auto triggers emergency
   const handleShakeOrDrop = useCallback((type: 'shake' | 'drop') => {
@@ -42,6 +41,11 @@ export default function Dashboard() {
       return;
     }
     
+    // Vibrate to provide feedback (if supported)
+    if ('vibrate' in navigator) {
+      navigator.vibrate([200, 100, 200]);
+    }
+    
     toast({
       title: `${type === 'shake' ? 'Shake' : 'Drop'} Detected!`,
       description: 'Emergency alert triggered automatically.',
@@ -51,16 +55,25 @@ export default function Dashboard() {
     setShowEmergency(true);
   }, [latitude, longitude, toast]);
 
-  const { isSupported: shakeSupported, isEnabled: shakeActive, requestPermission } = useShakeDetection(
-    handleShakeOrDrop,
-    { enabled: shakeEnabled }
-  );
+  const { 
+    isSupported: shakeSupported, 
+    isEnabled: shakeActive, 
+    permissionState,
+    requestPermission 
+  } = useShakeDetection(handleShakeOrDrop, { autoStart: true });
 
-  // Request motion permission
+  // Auto-request permission on iOS when page loads
+  useEffect(() => {
+    if (shakeSupported && permissionState === 'prompt') {
+      // On iOS, we need user gesture, so we'll show a button
+      console.log('[Dashboard] iOS permission required - showing enable button');
+    }
+  }, [shakeSupported, permissionState]);
+
+  // Request motion permission (mainly for iOS)
   const handleEnableShakeDetection = async () => {
     const granted = await requestPermission();
     if (granted) {
-      setShakeEnabled(true);
       toast({
         title: 'Motion Detection Enabled',
         description: 'Emergency alert will trigger on shake or drop.',
@@ -226,7 +239,7 @@ export default function Dashboard() {
                 Trigger Emergency Alert
               </Button>
               
-              {/* Shake/Drop Detection Toggle */}
+              {/* Shake/Drop Detection Status */}
               {shakeSupported && (
                 <div className="pt-2 border-t border-border">
                   <div className="flex items-center justify-between">
@@ -234,16 +247,21 @@ export default function Dashboard() {
                       <Smartphone className="h-4 w-4 text-muted-foreground" />
                       <span className="text-muted-foreground">Auto-detect shake/drop</span>
                     </div>
-                    <Button
-                      variant={shakeEnabled && shakeActive ? "default" : "outline"}
-                      size="sm"
-                      onClick={handleEnableShakeDetection}
-                      disabled={shakeEnabled && shakeActive}
-                    >
-                      {shakeEnabled && shakeActive ? 'Enabled' : 'Enable'}
-                    </Button>
+                    {permissionState === 'prompt' ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleEnableShakeDetection}
+                      >
+                        Enable
+                      </Button>
+                    ) : (
+                      <span className={`text-xs font-medium ${shakeActive ? 'text-green-600' : 'text-muted-foreground'}`}>
+                        {shakeActive ? 'Active' : 'Inactive'}
+                      </span>
+                    )}
                   </div>
-                  {shakeEnabled && shakeActive && (
+                  {shakeActive && (
                     <p className="text-xs text-green-600 mt-2">
                       ✓ Shake or drop your phone to auto-trigger emergency
                     </p>
