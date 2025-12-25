@@ -4,14 +4,17 @@ interface ShakeDetectionOptions {
   shakeThreshold?: number; // Acceleration threshold for shake (m/s²)
   dropThreshold?: number; // Acceleration threshold for drop (freefall)
   debounceMs?: number; // Debounce time between detections
-  enabled?: boolean;
+  autoStart?: boolean; // Auto-start on Android
 }
 
 interface ShakeDetectionResult {
   isSupported: boolean;
   isEnabled: boolean;
+  permissionState: 'unknown' | 'prompt' | 'granted' | 'denied';
   lastEvent: 'shake' | 'drop' | null;
   requestPermission: () => Promise<boolean>;
+  enable: () => void;
+  disable: () => void;
 }
 
 export function useShakeDetection(
@@ -19,75 +22,131 @@ export function useShakeDetection(
   options: ShakeDetectionOptions = {}
 ): ShakeDetectionResult {
   const {
-    shakeThreshold = 25, // High acceleration indicates shake
-    dropThreshold = 3, // Low acceleration indicates freefall/drop
-    debounceMs = 3000, // 3 second debounce
-    enabled = true,
+    shakeThreshold = 20, // Lower threshold for easier detection
+    dropThreshold = 2, // Low acceleration indicates freefall/drop
+    debounceMs = 2000, // 2 second debounce
+    autoStart = true,
   } = options;
 
   const [isSupported, setIsSupported] = useState(false);
   const [isEnabled, setIsEnabled] = useState(false);
+  const [permissionState, setPermissionState] = useState<'unknown' | 'prompt' | 'granted' | 'denied'>('unknown');
   const [lastEvent, setLastEvent] = useState<'shake' | 'drop' | null>(null);
   
   const lastTriggerRef = useRef<number>(0);
   const onDetectRef = useRef(onDetect);
+  const listenerAddedRef = useRef(false);
   
   // Keep callback ref updated
   useEffect(() => {
     onDetectRef.current = onDetect;
   }, [onDetect]);
 
+  // Check if iOS requires permission
+  const needsIOSPermission = typeof DeviceMotionEvent !== 'undefined' && 
+    typeof (DeviceMotionEvent as any).requestPermission === 'function';
+
   const requestPermission = useCallback(async (): Promise<boolean> => {
+    console.log('[ShakeDetection] Requesting permission...');
+    
     // Check if DeviceMotionEvent is available
     if (typeof DeviceMotionEvent === 'undefined') {
-      console.log('DeviceMotionEvent not supported');
+      console.log('[ShakeDetection] DeviceMotionEvent not supported');
+      setPermissionState('denied');
       return false;
     }
 
-    // iOS 13+ requires permission
-    if (typeof (DeviceMotionEvent as any).requestPermission === 'function') {
+    // iOS 13+ requires explicit permission
+    if (needsIOSPermission) {
       try {
         const permission = await (DeviceMotionEvent as any).requestPermission();
+        console.log('[ShakeDetection] iOS permission result:', permission);
         const granted = permission === 'granted';
-        setIsEnabled(granted);
+        setPermissionState(granted ? 'granted' : 'denied');
+        if (granted) {
+          setIsEnabled(true);
+        }
         return granted;
       } catch (error) {
-        console.error('Error requesting motion permission:', error);
+        console.error('[ShakeDetection] Error requesting motion permission:', error);
+        setPermissionState('denied');
         return false;
       }
     }
     
-    // Android and older iOS don't need permission
+    // Android and older iOS don't need permission - just enable
+    console.log('[ShakeDetection] No permission needed (Android/older iOS)');
+    setPermissionState('granted');
     setIsEnabled(true);
     return true;
+  }, [needsIOSPermission]);
+
+  const enable = useCallback(() => {
+    setIsEnabled(true);
   }, []);
 
-  useEffect(() => {
-    // Check support on mount
-    const supported = typeof DeviceMotionEvent !== 'undefined' && 
-                     'accelerometer' in navigator || 
-                     typeof DeviceMotionEvent !== 'undefined';
-    setIsSupported(supported);
-    
-    if (!supported || !enabled) return;
+  const disable = useCallback(() => {
+    setIsEnabled(false);
+  }, []);
 
-    // Auto-enable on Android (no permission needed)
-    if (typeof (DeviceMotionEvent as any).requestPermission !== 'function') {
-      setIsEnabled(true);
+  // Check support and auto-start on mount
+  useEffect(() => {
+    const checkSupport = () => {
+      // Check multiple ways for device motion support
+      const hasDeviceMotion = typeof DeviceMotionEvent !== 'undefined';
+      const hasAccelerometer = 'Accelerometer' in window;
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      const supported = hasDeviceMotion || hasAccelerometer;
+      
+      console.log('[ShakeDetection] Support check:', {
+        hasDeviceMotion,
+        hasAccelerometer,
+        isMobile,
+        supported,
+        needsIOSPermission
+      });
+      
+      setIsSupported(supported && isMobile);
+      
+      // On Android, auto-enable if supported and autoStart is true
+      if (supported && isMobile && autoStart && !needsIOSPermission) {
+        console.log('[ShakeDetection] Auto-enabling for Android');
+        setPermissionState('granted');
+        setIsEnabled(true);
+      } else if (needsIOSPermission) {
+        setPermissionState('prompt');
+      }
+    };
+
+    checkSupport();
+  }, [autoStart, needsIOSPermission]);
+
+  // Motion event handler
+  useEffect(() => {
+    if (!isEnabled) {
+      console.log('[ShakeDetection] Not enabled, skipping listener setup');
+      return;
     }
-  }, [enabled]);
 
-  useEffect(() => {
-    if (!isEnabled || !enabled) return;
+    if (listenerAddedRef.current) {
+      console.log('[ShakeDetection] Listener already added');
+      return;
+    }
 
     const handleMotion = (event: DeviceMotionEvent) => {
-      const acceleration = event.accelerationIncludingGravity;
-      if (!acceleration) return;
+      const acceleration = event.accelerationIncludingGravity || event.acceleration;
+      if (!acceleration) {
+        return;
+      }
 
       const { x, y, z } = acceleration;
-      if (x === null || y === null || z === null) return;
+      if (x === null || y === null || z === null) {
+        return;
+      }
 
       // Calculate total acceleration magnitude
+      // Normal gravity is ~9.8, so we subtract it for shake detection
       const totalAcceleration = Math.sqrt(x * x + y * y + z * z);
       
       const now = Date.now();
@@ -95,18 +154,19 @@ export function useShakeDetection(
       // Debounce check
       if (now - lastTriggerRef.current < debounceMs) return;
 
-      // Detect freefall (drop) - very low acceleration
+      // Detect freefall (drop) - very low acceleration (phone in free fall = ~0)
       if (totalAcceleration < dropThreshold) {
-        console.log('Drop detected! Acceleration:', totalAcceleration);
+        console.log('[ShakeDetection] Drop detected! Acceleration:', totalAcceleration);
         lastTriggerRef.current = now;
         setLastEvent('drop');
         onDetectRef.current('drop');
         return;
       }
 
-      // Detect shake - very high acceleration
+      // Detect shake - acceleration significantly higher than gravity (~9.8)
+      // When shaking, total acceleration spikes above normal
       if (totalAcceleration > shakeThreshold) {
-        console.log('Shake detected! Acceleration:', totalAcceleration);
+        console.log('[ShakeDetection] Shake detected! Acceleration:', totalAcceleration);
         lastTriggerRef.current = now;
         setLastEvent('shake');
         onDetectRef.current('shake');
@@ -114,17 +174,24 @@ export function useShakeDetection(
       }
     };
 
-    window.addEventListener('devicemotion', handleMotion);
+    console.log('[ShakeDetection] Adding devicemotion listener');
+    window.addEventListener('devicemotion', handleMotion, true);
+    listenerAddedRef.current = true;
     
     return () => {
-      window.removeEventListener('devicemotion', handleMotion);
+      console.log('[ShakeDetection] Removing devicemotion listener');
+      window.removeEventListener('devicemotion', handleMotion, true);
+      listenerAddedRef.current = false;
     };
-  }, [isEnabled, enabled, shakeThreshold, dropThreshold, debounceMs]);
+  }, [isEnabled, shakeThreshold, dropThreshold, debounceMs]);
 
   return {
     isSupported,
     isEnabled,
+    permissionState,
     lastEvent,
     requestPermission,
+    enable,
+    disable,
   };
 }
