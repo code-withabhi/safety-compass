@@ -6,12 +6,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Trash2, User, Phone, Heart, Loader2 } from 'lucide-react';
+import { Plus, Trash2, User, Phone, Heart, Loader2, Mail } from 'lucide-react';
 
 interface EmergencyContact {
   id: string;
   name: string;
   phone: string;
+  email: string | null;
   relationship: string | null;
 }
 
@@ -25,6 +26,7 @@ export function EmergencyContactsManager() {
   // New contact form
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
+  const [newEmail, setNewEmail] = useState('');
   const [newRelationship, setNewRelationship] = useState('');
   const [showForm, setShowForm] = useState(false);
 
@@ -60,7 +62,14 @@ export function EmergencyContactsManager() {
 
   const handleAddContact = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !newName.trim() || !newPhone.trim()) return;
+    if (!user || !newName.trim() || (!newPhone.trim() && !newEmail.trim())) {
+      toast({
+        title: 'Validation Error',
+        description: 'Please provide at least a phone number or email address.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -69,7 +78,8 @@ export function EmergencyContactsManager() {
         .insert({
           user_id: user.id,
           name: newName.trim(),
-          phone: newPhone.trim(),
+          phone: newPhone.trim() || '',
+          email: newEmail.trim() || null,
           relationship: newRelationship.trim() || null,
         })
         .select()
@@ -80,6 +90,7 @@ export function EmergencyContactsManager() {
       setContacts([...contacts, data]);
       setNewName('');
       setNewPhone('');
+      setNewEmail('');
       setNewRelationship('');
       setShowForm(false);
       toast({
@@ -150,9 +161,9 @@ export function EmergencyContactsManager() {
         {/* Add Contact Form */}
         {showForm && (
           <form onSubmit={handleAddContact} className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="contact-name">Name</Label>
+                <Label htmlFor="contact-name">Name *</Label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -160,21 +171,6 @@ export function EmergencyContactsManager() {
                     placeholder="Contact name"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
-                    className="pl-10"
-                    required
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="contact-phone">Phone</Label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="contact-phone"
-                    type="tel"
-                    placeholder="+1234567890"
-                    value={newPhone}
-                    onChange={(e) => setNewPhone(e.target.value)}
                     className="pl-10"
                     required
                   />
@@ -190,6 +186,38 @@ export function EmergencyContactsManager() {
                 />
               </div>
             </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="contact-phone">Phone</Label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="contact-phone"
+                    type="tel"
+                    placeholder="+1234567890"
+                    value={newPhone}
+                    onChange={(e) => setNewPhone(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="contact-email">Email *</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="contact-email"
+                    type="email"
+                    placeholder="email@example.com"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    className="pl-10"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">* Email is required for emergency notifications</p>
             <div className="flex gap-2">
               <Button type="submit" size="sm" disabled={isSaving}>
                 {isSaving ? (
@@ -237,14 +265,21 @@ export function EmergencyContactsManager() {
                   </div>
                   <div>
                     <p className="font-medium text-foreground">{contact.name}</p>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Phone className="h-3 w-3" />
-                      <span>{contact.phone}</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm text-muted-foreground">
+                      {contact.email && (
+                        <div className="flex items-center gap-1">
+                          <Mail className="h-3 w-3" />
+                          <span>{contact.email}</span>
+                        </div>
+                      )}
+                      {contact.phone && (
+                        <div className="flex items-center gap-1">
+                          <Phone className="h-3 w-3" />
+                          <span>{contact.phone}</span>
+                        </div>
+                      )}
                       {contact.relationship && (
-                        <>
-                          <span>•</span>
-                          <span>{contact.relationship}</span>
-                        </>
+                        <span className="hidden sm:inline">• {contact.relationship}</span>
                       )}
                     </div>
                   </div>
