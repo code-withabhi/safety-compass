@@ -68,9 +68,9 @@ Respond with ONLY a JSON object in this exact format:
 {"risk_level": "low|medium|high", "confidence": 0.0-1.0, "reasoning": "brief explanation"}`;
 
     console.log('Sending request to Google Vertex AI (Gemini)...');
-    
-    // Using Google Gemini API via Vertex AI
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GOOGLE_VERTEX_AI_API_KEY}`, {
+
+    // Using Google Gemini API - gemini-2.0-flash is the current available model
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_VERTEX_AI_API_KEY}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
